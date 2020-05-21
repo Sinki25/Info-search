@@ -1,0 +1,414 @@
+# coding=utf-8
+# -*- coding: utf-8 -*-
+import math
+import string
+import nltk
+import urllib3
+from bs4 import BeautifulSoup
+from nltk.corpus import stopwords
+import pymorphy2
+from prettytable import PrettyTable
+from tabulate import tabulate
+
+morph = pymorphy2.MorphAnalyzer()
+
+nltk.download('punkt')
+nltk.download('stopwords')
+
+def matrix(tf_idf_list, s, index_list, f):
+
+    terms = []
+    if ',' in s:
+        terms = s.split(', ')
+    else:
+        terms.append(s)
+
+    m = []
+    m_01 = []
+    docs_2 = [] # list with docs
+
+    for term in terms:
+        docs = index_list[term].split(' ')
+        for doc in docs:
+            if (doc not in docs_2) and (doc != ''):
+                docs_2.append(doc)
+
+    #print(docs_2)
+    j = 0
+    for doc in docs_2:
+        m.append([])
+        m_01.append([])
+        for term in terms:
+            for i in range(0, len(tf_idf_list)):
+                if (term in tf_idf_list[i]):
+                    m[j].append(tf_idf_list[i][int(doc)+1])
+                    if tf_idf_list[i][int(doc)+1] == '':
+                        m_01[j].append(0)
+                    else:
+                        m_01[j].append(1)
+
+        j = j + 1
+
+    #print(tabulate(m))
+    #print(tabulate(m_01))
+
+    cos1 = 0
+    cos2 = 0
+    cos3 = 0
+    cos0 = 0
+    cos = []
+    for i in range(0, f):
+        cos.append('')
+
+    for i in range(0,len(docs_2)):
+        j = 0
+        for j in range(0, len(terms)):
+            if m[i][j] != '':
+                cos1 = cos1 + float(m[i][j]) * float(m_01[i][j])
+                cos2 = cos2 + float(m[i][j]) * float(m[i][j])
+                cos3 = cos3 + float(m_01[i][j]) * float(m_01[i][j])
+
+        cos0 = cos1 / (math.sqrt(cos2) * math.sqrt(cos3))
+        cos[int(docs_2[i])] = cos0
+
+    cos_final = cos.copy()
+
+    for i in range(len(cos) - 1, -1, -1):
+        # print(i, len(doc_list))
+        if cos[i] == '' :
+            cos_final.pop(i)
+
+    cos_final.sort(reverse = True)
+    cos_i = []
+
+    for i in range(0, len(cos_final)):
+        for j in range(0,len(cos)):
+            if (cos_final[i] == cos[j]) and (j not in cos_i):
+                cos_i.append(j)
+
+    for cos in cos_i:
+        print(cos)
+
+def tf_idf(idf_list, f):
+
+    tf_idf_list = []
+    terms_list = []
+
+    for i in range(0,f):
+        my_file = open("C:/Users/Sinki/PycharmProjects/infosearch/tf/tf" + str(i) + ".txt", 'r', encoding = 'utf-8')
+
+        for line in my_file:
+            s = line
+            lines = s.split(' ')
+            if lines[0] not in terms_list:
+                terms_list.append(lines[0])
+                tf_idf_list.append([])
+                tf_idf_list[terms_list.index(lines[0])].append(lines[0])
+
+                for j in range(0,f):
+                    tf_idf_list[terms_list.index(lines[0])].append('')
+
+            tf_idf_list[terms_list.index(lines[0])][i+1] = str(round((float(lines[2][:len(lines[2])]) * idf_list[lines[0]]),5))
+
+        my_file.close()
+
+    #print(tabulate(tf_idf_list, headers=['term', '0', '1', '2','3','4','5','6','7','8','9']))
+
+    return tf_idf_list
+
+
+def idf(index_list, num):
+
+    idf_list = {}
+    for term in index_list:
+        docs = []
+        docs = index_list[term].split(' ')# ['0','']
+        #print(num/(len(docs)-1))
+        idf_list[term] = round(math.log10(num/(len(docs)-1)),5)
+
+    t = PrettyTable(['term', 'idf'])
+    for key, value in idf_list.items():
+        t.add_row([key, value])
+    #print(t)
+    return idf_list
+
+# counting tf, idf values
+def tf(r, f):
+
+    tf_sum = 0
+    tf_list = {}
+    tokens, sum_tokens, tokens_not_nf = token_lemma(r)  # tokens - list with terms, sum_tokens - list with terms + stop_words, tokens_not_nf - list with tokens not in normal form
+    tf_sum = len(sum_tokens)
+
+    for i in range(0, len(tokens)):
+        tf = 0
+        if tokens[i] not in tf_list.keys():
+            for j in range(i, len(sum_tokens)):
+                if tokens_not_nf[i] == sum_tokens[j]:
+                    tf = tf + 1
+
+            tf_list[tokens[i]] = round(tf/tf_sum,5)
+
+    my_file = open("C:/Users/Sinki/PycharmProjects/infosearch/tf/tf" + str(f) + ".txt", 'w', encoding = 'utf-8')
+    t = PrettyTable(['term', 'tf'])
+    for key,value in tf_list.items():
+        t.add_row([key, value])
+        my_file.write(str(key) + " : " + str(value) + "\n")
+
+    my_file.close()
+
+    return tf_list
+
+# getting boolean values
+def b_search(s):
+    s_list = s.split(' ')
+    s_list_01 = []
+    symbols = ['&', '|']
+
+    for i_s in range(0, len(s_list)):
+        s_list_01.append('')
+
+    for symbol in symbols:
+        for i_s in range(1, len(s_list) - 1):
+            if symbol == '&':
+                if s_list[i_s] == '&':
+                    #print(i_s)
+                    s_list_01[i_s - 1] = 1
+                    s_list_01[i_s + 1] = 1
+            else:  # 'str1 | str2 | str3'
+                if s_list[i_s] == '|':
+                    #print(i_s)
+                    if s_list_01[i_s - 1] != 1:
+                        s_list_01[i_s - 1] = 2
+                    if s_list_01[i_s + 1] != 1:
+                        s_list_01[i_s + 1] = 2
+            #print(s_list_01)
+
+    for i_s in range(0, len(s_list)):
+        if '!' in s_list[i_s]:
+            s_list_01[i_s] = -s_list_01[i_s]
+            s_list[i_s] = s_list[i_s][1:]
+
+    # getting dictionary with boolean and str values
+    s_final = {s_list[0]: s_list_01[0], s_list[2]: s_list_01[2], s_list[4]: s_list_01[4]}
+
+    return s_final
+
+def finding_booleans(bool_dict, index_list):
+
+    docs = []
+
+    # len = docs number
+    for d in range(0,5):
+        docs.append(str(d))
+
+    # list with result docs
+    doc_list = []
+    for key,value in bool_dict.items():
+        if value == 1:
+            test_list = index_list[key].split(' ') # docs with key
+
+            if len(doc_list) == 0:
+                for doc in test_list:
+                    if doc not in doc_list :
+                        doc_list.append(doc)
+            else:
+                for d in range(0,len(doc_list)-1):
+                    if doc_list[d] not in test_list :
+                        doc_list[d] = ''
+
+    for key, value in bool_dict.items():
+        if value == -1:
+            test_list = index_list[key].split(' ')
+
+            for t in range(0, len(test_list)-1):
+                if test_list[t] in doc_list:
+                    doc_list[doc_list.index(test_list[t])] = ''
+
+    for key, value in bool_dict.items():
+        if value == 2:
+            test_list = index_list[key].split(' ')
+
+            for doc in test_list:
+                if doc not in doc_list:
+                    doc_list.append(doc)
+        elif value == -2:
+            test_list = index_list[key].split(' ')
+
+            for doc in docs:
+                if (doc not in test_list) and (doc not in doc_list) :
+                    doc_list.append(doc)
+
+    doc_list2 = doc_list.copy()
+
+    for i in range(len(doc_list)-1, -1, -1):
+        #print(i, len(doc_list))
+        if doc_list[i] == '' or doc_list[i] == ' ':
+            doc_list2.pop(i)
+    return doc_list2
+
+# creating index list
+def create_index(terms, i, index_list):
+
+    for term in terms :
+        if term not in index_list:
+            index_list[term] = ''
+            index_list[term] = index_list[term] + str(i) + ' '
+            #print(index_list[term], ' ', term)
+        else :
+            if str(i) not in index_list[term]:
+                index_list[term] = index_list[term] + str(i) + ' '
+
+    return index_list
+
+def token_lemma(r):
+    soup = BeautifulSoup(r.data.decode('utf-8'), 'html.parser')
+
+    text = soup.find_all(text=True)  # find text content
+
+    output = ''
+    blacklist = [
+        '[document]',
+        'noscript',
+        'header',
+        'html',
+        'meta',
+        'head',
+        'input',
+        'script',
+        'button',
+        'style',
+        'img',
+        'form',
+        'fieldset',
+        'label',
+        'svg'
+    ]
+
+    # extracting text from html
+    for t in text:
+        if t.parent.name not in blacklist:
+            output += '{} '.format(t) # formatting string
+
+    # tokenazing
+    tokens = nltk.word_tokenize(output) # Return a tokenized copy of text
+    tokens = [i for i in tokens if (i not in string.punctuation)]
+
+    output = []  # tokens
+    output2 = [] # list with terms + stop_words
+    output2 = tokens
+    output3 = []  # list with tokens not in normal form
+    output3 = tokens
+
+    # deleting stop_words
+    stop_words = stopwords.words('russian')
+    stop_words.extend(['что', 'это', 'так', 'вот', 'быть', 'как', 'в', '—', 'к', 'на', 'до', '→', ''])
+    tokens = [i for i in tokens if (i not in stop_words)]
+
+    # cleaning words
+    tokens = [i.replace("«", "").replace("»", "") for i in tokens]
+
+    # lemmatization
+    for token in tokens:
+        t = morph.parse(token)[0]
+        output.append(t.normal_form)
+
+    return output, output2, output3
+
+# creating files
+def open_url(i, url, r, index_list):
+    my_file = open("C:/Users/Sinki/PycharmProjects/infosearch/docs/" + str(i) + ".txt", 'w', encoding = 'utf-8')
+    my_file.write(str(r.data.decode('utf-8'))[0:(len(str(r.data)))])
+    my_file.close()
+
+    my_file2 = open("C:/Users/Sinki/PycharmProjects/infosearch/index.txt", 'w')
+    my_file2.write(str(i) + " " + url+"\n")
+    my_file2.close()
+
+    tokens, sum_tokens, tokens_not_nf = token_lemma(r)
+
+    my_file3 = open("C:/Users/Sinki/PycharmProjects/infosearch/tokens/" + str(i) + "_token.txt", 'w', encoding='utf-8')
+    my_file3.write(str(tokens))
+    my_file3.close()
+
+    index_list = create_index(tokens, i, index_list)
+
+    tf(r, i)
+
+    return index_list
+
+def recur_open(i, r, index_list, s): # open 100 pages
+
+    soup = BeautifulSoup(r.data.decode('utf-8'), 'html.parser')
+
+    for li in soup.find_all("a"):
+        #print(li.attrs[u'href'])
+        if len(li.attrs[u'href']) > 0:
+            if li.attrs[u'href'][0] == 'h':
+                i = i + 1
+
+                if i == 20:
+                    idf_list = idf(index_list,20)
+                    tf_idf_list = tf_idf(idf_list,20)
+                    matrix(tf_idf_list, s, index_list, 20)
+
+                    #doc_list = finding_booleans(b_search(s), index_list)
+                    #print(index_list.keys())
+                    #print(index_list.values())
+                    #print(doc_list)
+                    #print(index_list.values())
+                    break
+
+                #print(index_list.values())
+                r = http.request('GET', li.attrs[u'href'])
+                index_list = open_url(i, li.attrs[u'href'], r, index_list)
+
+    return i
+
+# init
+http = urllib3.PoolManager() # Allows requests, handles all of the details of connection pooling and thread safety
+url = 'https://habr.com/ru/'
+
+
+i = 0 # doc number
+j = i + 1 # 2d line
+index_list = {} # indexes dict
+s = ''
+s = input()
+
+r = http.request('GET', url) # The HTTPResponse object provides status, data, and header
+
+index_list = open_url(i, url, r, index_list)
+i = recur_open(i, r, index_list, s)
+
+while i < 1 :
+    my_file = open("C:/Users/Sinki/PycharmProjects/infosearch/index.txt")
+
+    s = my_file.readlines()[j]
+    position = s.find(" ")+1
+
+    r = http.request('GET', s[position:(len(s)-1)])
+    open_url(i,s[position:(len(s)-1)],r, index_list)
+    i = recur_open(i, r, s)
+    j = j + 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
